@@ -1,0 +1,92 @@
+const express = require('express');
+const { spawn } = require('child_process');
+
+const app = express();
+
+// MJPEG stream endpoint
+app.get('/video', (req, res) => {
+    res.writeHead(200, {
+        'Content-Type': 'multipart/x-mixed-replace; boundary=--myboundary',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*'
+    });
+
+    // Start ADB screen capture
+    const adbProcess = spawn('adb', ['exec-out', 'screenrecord', '--output-format=h264', '--bit-rate=1000000', '-']);
+    
+    // Convert to MJPEG using FFmpeg
+    const ffmpegProcess = spawn('ffmpeg', [
+        '-i', 'pipe:0',
+        '-f', 'mjpeg',
+        '-q:v', '3',              // JPEG quality
+        '-r', '15',               // 15 FPS
+        '-vf', 'scale=480:854',   // Scale down
+        'pipe:1'
+    ]);
+
+    adbProcess.stdout.pipe(ffmpegProcess.stdin);
+
+    let frameBuffer = Buffer.alloc(0);
+
+    ffmpegProcess.stdout.on('data', (chunk) => {
+        frameBuffer = Buffer.concat([frameBuffer, chunk]);
+        
+        // Look for JPEG frame boundaries (FF D8 start, FF D9 end)
+        let startIndex = 0;
+        while (true) {
+            const jpegStart = frameBuffer.indexOf(Buffer.from([0xFF, 0xD8]), startIndex);
+            if (jpegStart === -1) break;
+            
+            const jpegEnd = frameBuffer.indexOf(Buffer.from([0xFF, 0xD9]), jpegStart + 2);
+            if (jpegEnd === -1) break;
+            
+            // Extract complete JPEG frame
+            const frame = frameBuffer.slice(jpegStart, jpegEnd + 2);
+            
+            // Send frame to browser
+            res.write(`--myboundary\r\n`);
+            res.write(`Content-Type: image/jpeg\r\n`);
+            res.write(`Content-Length: ${frame.length}\r\n\r\n`);
+            res.write(frame);
+            res.write('\r\n');
+            
+            startIndex = jpegEnd + 2;
+        }
+        
+        // Keep remaining data for next chunk
+        if (startIndex > 0) {
+            frameBuffer = frameBuffer.slice(startIndex);
+        }
+    });
+
+    req.on('close', () => {
+        adbProcess.kill();
+        ffmpegProcess.kill();
+    });
+});
+
+// Serve simple HTML page
+app.get('/', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Android Stream (MJPEG)</title>
+            <style>
+                body { margin: 0; padding: 20px; background: #000; text-align: center; }
+                img { max-width: 100%; height: auto; border: 2px solid #333; }
+                h1 { color: white; }
+            </style>
+        </head>
+        <body>
+            <h1>Android Emulator Stream</h1>
+            <img src="/video" alt="Android Stream" />
+        </body>
+        </html>
+    `);
+});
+
+app.listen(3000, () => {
+    console.log('MJPEG Server running on http://localhost:3000');
+    console.log('Make sure your Android emulator is running');
+});

@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Android Emulator Stream</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+        }
+
+        #videoPlayer {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #666;
+            font-size: 18px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        button:hover:not(:disabled) {
+            background: #0056b3;
+        }
+
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        .status {
+            text-align: center;
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .status.connected {
+            background: #28a745;
+        }
+
+        .status.connecting {
+            background: #ffc107;
+            color: #000;
+        }
+
+        .status.disconnected {
+            background: #dc3545;
+        }
+
+        .info {
+            background: #333;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 600px) {
+            .controls {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            button {
+                width: 200px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Android Emulator Live Stream</h1>
+        </div>
+
+        <div class="video-container">
+            <video id="videoPlayer" autoplay muted playsinline>
+                <div class="loading">Connecting to stream...</div>
+            </video>
+        </div>
+
+        <div class="controls">
+            <button id="connectBtn">Connect</button>
+            <button id="disconnectBtn" disabled>Disconnect</button>
+            <button id="fullscreenBtn">Fullscreen</button>
+            <button id="muteBtn">Mute/Unmute</button>
+        </div>
+
+        <div id="status" class="status disconnected">Disconnected</div>
+
+        <div class="info">
+            <h3>Instructions:</h3>
+            <ul>
+                <li>Make sure your Android emulator is running</li>
+                <li>Ensure ADB is connected to the emulator</li>
+                <li>Click "Connect" to start streaming</li>
+                <li>The stream may take a few seconds to initialize</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        class AndroidStreamer {
+            constructor() {
+                this.ws = null;
+                this.mediaSource = null;
+                this.sourceBuffer = null;
+                this.video = document.getElementById('videoPlayer');
+                this.queue = [];
+                this.isBuffering = true;
+                
+                this.connectBtn = document.getElementById('connectBtn');
+                this.disconnectBtn = document.getElementById('disconnectBtn');
+                this.fullscreenBtn = document.getElementById('fullscreenBtn');
+                this.muteBtn = document.getElementById('muteBtn');
+                this.statusDiv = document.getElementById('status');
+                
+                this.bindEvents();
+            }
+
+            bindEvents() {
+                this.connectBtn.addEventListener('click', () => this.connect());
+                this.disconnectBtn.addEventListener('click', () => this.disconnect());
+                this.fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
+                this.muteBtn.addEventListener('click', () => this.toggleMute());
+            }
+
+            connect() {
+                try {
+                    this.updateStatus('connecting', 'Connecting...');
+                    
+                    const wsUrl = `ws://${window.location.host}`;
+                    this.ws = new WebSocket(wsUrl);
+                    this.ws.binaryType = 'arraybuffer';
+
+                    this.ws.onopen = () => {
+                        console.log('WebSocket connected');
+                        this.updateStatus('connected', 'Connected');
+                        this.connectBtn.disabled = true;
+                        this.disconnectBtn.disabled = false;
+                        this.setupMediaSource();
+                    };
+
+                    this.ws.onmessage = (event) => {
+                        if (event.data instanceof ArrayBuffer) {
+                            this.handleVideoData(event.data);
+                        }
+                    };
+
+                    this.ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.updateStatus('disconnected', 'Connection Error');
+                    };
+
+                    this.ws.onclose = () => {
+                        console.log('WebSocket disconnected');
+                        this.updateStatus('disconnected', 'Disconnected');
+                        this.connectBtn.disabled = false;
+                        this.disconnectBtn.disabled = true;
+                        this.cleanup();
+                    };
+
+                } catch (error) {
+                    console.error('Connection failed:', error);
+                    this.updateStatus('disconnected', 'Connection Failed');
+                }
+            }
+
+            disconnect() {
+                if (this.ws) {
+                    this.ws.close();
+                }
+                this.cleanup();
+                this.connectBtn.disabled = false;
+                this.disconnectBtn.disabled = true;
+            }
+
+            setupMediaSource() {
+                // Clean up existing MediaSource first
+                this.cleanup();
+                
+                if ('MediaSource' in window) {
+                    this.mediaSource = new MediaSource();
+                    this.video.src = URL.createObjectURL(this.mediaSource);
+                    
+                    this.mediaSource.addEventListener('sourceopen', () => {
+                        try {
+                            // Check if MediaSource is still open and doesn't have source buffers
+                            if (this.mediaSource.readyState === 'open' && this.mediaSource.sourceBuffers.length === 0) {
+                                this.sourceBuffer = this.mediaSource.addSourceBuffer('video/mp4; codecs="avc1.42E01E"');
+                                this.sourceBuffer.addEventListener('updateend', () => {
+                                    this.isBuffering = false;
+                                    this.processQueue();
+                                });
+                                console.log('SourceBuffer created successfully');
+                            }
+                        } catch (error) {
+                            console.error('Failed to create source buffer:', error);
+                            // Fallback: try a different approach
+                            this.setupFallbackStream();
+                        }
+                    });
+
+                    this.mediaSource.addEventListener('sourceclose', () => {
+                        console.log('MediaSource closed');
+                        this.sourceBuffer = null;
+                    });
+
+                    this.mediaSource.addEventListener('error', (e) => {
+                        console.error('MediaSource error:', e);
+                        this.setupFallbackStream();
+                    });
+                } else {
+                    console.error('MediaSource not supported');
+                    this.setupFallbackStream();
+                }
+            }
+
+            handleVideoData(data) {
+                if (this.sourceBuffer && !this.sourceBuffer.updating) {
+                    this.queue.push(new Uint8Array(data));
+                    this.processQueue();
+                }
+            }
+
+            processQueue() {
+                if (this.queue.length > 0 && this.sourceBuffer && !this.sourceBuffer.updating && !this.isBuffering) {
+                    this.isBuffering = true;
+                    const chunk = this.queue.shift();
+                    try {
+                        this.sourceBuffer.appendBuffer(chunk);
+                    } catch (error) {
+                        console.error('Error appending buffer:', error);
+                        this.isBuffering = false;
+                    }
+                }
+            }
+
+            toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    this.video.requestFullscreen().catch(err => {
+                        console.error('Error attempting to enable fullscreen:', err);
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
+            }
+
+            toggleMute() {
+                this.video.muted = !this.video.muted;
+                this.muteBtn.textContent = this.video.muted ? 'Unmute' : 'Mute';
+            }
+
+            updateStatus(type, message) {
+                this.statusDiv.className = `status ${type}`;
+                this.statusDiv.textContent = message;
+            }
+
+            cleanup() {
+                this.queue = [];
+                this.isBuffering = false;
+                
+                // Clean up SourceBuffer
+                if (this.sourceBuffer) {
+                    try {
+                        if (this.mediaSource && this.mediaSource.readyState === 'open') {
+                            this.mediaSource.removeSourceBuffer(this.sourceBuffer);
+                        }
+                    } catch (error) {
+                        console.error('Error removing source buffer:', error);
+                    }
+                    this.sourceBuffer = null;
+                }
+                
+                // Clean up MediaSource
+                if (this.mediaSource) {
+                    try {
+                        if (this.mediaSource.readyState === 'open') {
+                            this.mediaSource.endOfStream();
+                        }
+                        // Revoke the object URL to free memory
+                        if (this.video.src && this.video.src.startsWith('blob:')) {
+                            URL.revokeObjectURL(this.video.src);
+                        }
+                    } catch (error) {
+                        console.error('Error cleaning up MediaSource:', error);
+                    }
+                    this.mediaSource = null;
+                }
+                
+                // Reset video source
+                this.video.src = '';
+                this.video.load();
+            }
+
+            setupFallbackStream() {
+                console.log('Setting up fallback stream method');
+                // Alternative: Use blob URLs for streaming
+                // This is a simpler approach that might work better
+                alert('MediaSource API failed. Please refresh the page and try again. If the problem persists, your browser may not fully support video streaming.');
+            }
+        }
+
+        // Initialize the streamer when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            window.streamer = new AndroidStreamer();
+        });
+    </script>
+</body>
+</html>
