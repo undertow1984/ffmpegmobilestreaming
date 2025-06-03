@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Android Emulator</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-x: auto;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .main-content {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .video-section {
+            flex: 1;
+            min-width: 360px;
+            max-width: 500px;
+        }
+
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+            cursor: crosshair;
+        }
+
+        #videoPlayer {
+            width: 100%;
+            height: auto;
+            display: block;
+            pointer-events: none; /* Disable video controls */
+        }
+
+        .video-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 10;
+            cursor: crosshair;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #666;
+            font-size: 18px;
+            z-index: 5;
+        }
+
+        .stream-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 15;
+            transition: all 0.3s ease;
+        }
+
+        .stream-indicator.active {
+            background: #28a745;
+            color: white;
+        }
+
+        .stream-indicator.inactive {
+            background: #dc3545;
+            color: white;
+        }
+
+        .stream-indicator.reconnecting {
+            background: #ffc107;
+            color: #000;
+        }
+
+        .controls-section {
+            flex: 1;
+            min-width: 300px;
+            max-width: 400px;
+        }
+
+        .control-group {
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .control-group h3 {
+            margin: 0 0 15px 0;
+            color: #fff;
+            font-size: 16px;
+        }
+
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+            min-height: 44px;
+            position: relative;
+        }
+
+        button:hover:not(:disabled) {
+            background: #0056b3;
+        }
+
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        .primary-btn {
+            background: #28a745;
+        }
+
+        .primary-btn:hover:not(:disabled) {
+            background: #1e7e34;
+        }
+
+        .danger-btn {
+            background: #dc3545;
+        }
+
+        .danger-btn:hover:not(:disabled) {
+            background: #c82333;
+        }
+
+        .button-processing {
+            background: #6c757d !important;
+        }
+
+        .button-processing::after {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            top: 50%;
+            left: 50%;
+            margin: -8px 0 0 -8px;
+            border: 2px solid transparent;
+            border-top: 2px solid #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .input-group {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #555;
+            border-radius: 4px;
+            background: #2d2d2d;
+            color: white;
+            font-size: 14px;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+
+        .status {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .status.connected {
+            background: #28a745;
+        }
+
+        .status.connecting {
+            background: #ffc107;
+            color: #000;
+        }
+
+        .status.disconnected {
+            background: #dc3545;
+        }
+
+        .status.stream-active {
+            background: linear-gradient(45deg, #28a745, #20c997);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(40, 167, 69, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); }
+        }
+
+        .info {
+            background: #333;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .debug {
+            background: #2d2d2d;
+            border: 1px solid #555;
+            padding: 10px;
+            margin-top: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .coordinate-display {
+            background: #2d2d2d;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            margin-bottom: 10px;
+            border: 1px solid #555;
+        }
+
+        .swipe-mode {
+            background: #17a2b8 !important;
+        }
+
+        .swipe-mode:hover {
+            background: #138496 !important;
+        }
+
+        .command-queue-info {
+            background: #2d2d2d;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-bottom: 10px;
+            border: 1px solid #555;
+            text-align: center;
+        }
+
+        .command-queue-info.processing {
+            border-color: #ffc107;
+            background: rgba(255, 193, 7, 0.1);
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                flex-direction: column;
+            }
+            
+            .video-section,
+            .controls-section {
+                max-width: none;
+            }
+            
+            .button-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Interactive Android Emulator</h1>
+        </div>
+
+        <div id="status" class="status disconnected">Disconnected</div>
+
+        <div class="main-content">
+            <div class="video-section">
+                <div class="video-container">
+                    <video id="videoPlayer" autoplay muted playsinline>
+                        <div class="loading">Connecting to stream...</div>
+                    </video>
+                    <div class="video-overlay" id="videoOverlay"></div>
+                    <div class="stream-indicator inactive" id="streamIndicator">
+                        Stream Inactive
+                    </div>
+                </div>
+                
+                <div class="coordinate-display" id="coordinateDisplay">
+                    Coordinates: (0, 0) | Device: (0, 0)
+                </div>
+                
+                <div class="command-queue-info" id="commandQueueInfo">
+                    Commands: 0 pending
+                </div>
+            </div>
+
+            <div class="controls-section">
+                <div class="control-group">
+                    <h3>Connection</h3>
+                    <div class="button-grid">
+                        <button id="connectBtn" class="primary-btn">Connect</button>
+                        <button id="disconnectBtn" class="danger-btn" disabled>Disconnect</button>
+                        <button id="debugBtn">Debug</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <h3>Navigation</h3>
+                    <div class="button-grid">
+                        <button id="backBtn">Back</button>
+                        <button id="homeBtn">Home</button>
+                        <button id="menuBtn">Menu</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <h3>Gesture Settings</h3>
+                    <div style="font-size: 12px; color: #ccc; margin-bottom: 10px;">
+                        Tap threshold: <span id="tapThresholdValue">10px</span><br>
+                        <input type="range" id="tapThresholdSlider" min="5" max="50" value="10" style="width: 100%; margin: 5px 0;">
+                    </div>
+                    <div class="button-grid">
+                        <button id="fullscreenBtn">Fullscreen</button>
+                        <button onclick="window.streamer.tapThreshold = 10; document.getElementById('tapThresholdSlider').value = 10; document.getElementById('tapThresholdValue').textContent = '10px';">Reset</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <h3>Text Input</h3>
+                    <div class="input-group">
+                        <input type="text" id="textInput" placeholder="Enter text to type...">
+                        <button id="sendTextBtn">Send</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <h3>Quick Actions</h3>
+                    <div class="button-grid">
+                        <button onclick="sendKey(67)">Delete</button>
+                        <button onclick="sendKey(66)">Enter</button>
+                        <button onclick="sendKey(62)">Space</button>
+                        <button onclick="sendKey(25)">Vol Down</button>
+                        <button onclick="sendKey(24)">Vol Up</button>
+                        <button onclick="sendKey(26)">Power</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="info">
+            <h3>How to Use:</h3>
+            <ul>
+                <li><strong>Enhanced Streaming:</strong> Video stream automatically resumes after commands</li>
+                <li><strong>Smart Gestures:</strong> Click for taps, drag for swipes - automatically detected!</li>
+                <li><strong>Tap:</strong> Quick click/touch (≤10px movement, ≤500ms)</li>
+                <li><strong>Swipe:</strong> Click and drag (>10px movement or >500ms)</li>
+                <li><strong>Command Queue:</strong> Commands are processed sequentially to prevent conflicts</li>
+                <li><strong>Auto-Recovery:</strong> Stream automatically restarts if interrupted</li>
+                <li><strong>Stream Status:</strong> Visual indicator shows stream health</li>
+            </ul>
+        </div>
+
+        <div id="debugInfo" class="debug" style="display: none;">
+            <h4>Debug Information:</h4>
+            <div id="debugLog"></div>
+        </div>
+    </div>
+
+    <script>
+        class InteractiveAndroidStreamer {
+            constructor() {
+                this.ws = null;
+                this.mediaSource = null;
+                this.sourceBuffer = null;
+                this.video = document.getElementById('videoPlayer');
+                this.videoOverlay = document.getElementById('videoOverlay');
+                this.queue = [];
+                this.isBuffering = false;
+                this.isDebugVisible = false;
+                
+                // Stream status tracking
+                this.streamActive = false;
+                this.commandQueue = [];
+                this.processingCommand = false;
+                
+                // Touch/interaction state
+                this.isPointerDown = false;
+                this.pointerStart = { x: 0, y: 0, time: 0 };
+                this.deviceWidth = 720;
+                this.deviceHeight = 1280;
+                this.tapThreshold = 10; // pixels
+                this.tapTimeThreshold = 500; // milliseconds
+                
+                // UI elements
+                this.connectBtn = document.getElementById('connectBtn');
+                this.disconnectBtn = document.getElementById('disconnectBtn');
+                this.debugBtn = document.getElementById('debugBtn');
+                this.statusDiv = document.getElementById('status');
+                this.debugInfo = document.getElementById('debugInfo');
+                this.debugLog = document.getElementById('debugLog');
+                this.coordinateDisplay = document.getElementById('coordinateDisplay');
+                this.textInput = document.getElementById('textInput');
+                this.sendTextBtn = document.getElementById('sendTextBtn');
+                this.fullscreenBtn = document.getElementById('fullscreenBtn');
+                this.backBtn = document.getElementById('backBtn');
+                this.homeBtn = document.getElementById('homeBtn');
+                this.menuBtn = document.getElementById('menuBtn');
+                this.streamIndicator = document.getElementById('streamIndicator');
+                this.commandQueueInfo = document.getElementById('commandQueueInfo');
+                
+                this.bindEvents();
+                this.setupVideoEvents();
+                this.setupTouchEvents();
+                this.updateCommandQueueDisplay();
+            }
+
+            bindEvents() {
+                this.connectBtn.addEventListener('click', () => this.connect());
+                this.disconnectBtn.addEventListener('click', () => this.disconnect());
+                this.debugBtn.addEventListener('click', () => this.toggleDebug());
+                this.fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
+                
+                // Navigation buttons with visual feedback
+                this.backBtn.addEventListener('click', () => this.sendCommandWithFeedback({ type: 'back' }, this.backBtn));
+                this.homeBtn.addEventListener('click', () => this.sendCommandWithFeedback({ type: 'home' }, this.homeBtn));
+                this.menuBtn.addEventListener('click', () => this.sendCommandWithFeedback({ type: 'menu' }, this.menuBtn));
+                
+                // Text input
+                this.sendTextBtn.addEventListener('click', () => this.sendText());
+                this.textInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.sendText();
+                });
+            }
+
+            setupVideoEvents() {
+                this.video.addEventListener('loadstart', () => this.log('Video load started'));
+                this.video.addEventListener('loadedmetadata', () => this.log('Video metadata loaded'));
+                this.video.addEventListener('canplay', () => this.log('Video can start playing'));
+                this.video.addEventListener('playing', () => {
+                    this.log('Video is playing');
+                    this.updateStreamStatus(true);
+                });
+                this.video.addEventListener('pause', () => {
+                    this.log('Video paused');
+                    this.updateStreamStatus(false);
+                });
+                this.video.addEventListener('error', (e) => {
+                    this.log('Video error: ' + (e.message || 'Unknown error'));
+                    this.updateStreamStatus(false);
+                });
+            }
+
+            setupTouchEvents() {
+                // Mouse events for desktop
+                this.videoOverlay.addEventListener('mousedown', (e) => this.handlePointerDown(e));
+                this.videoOverlay.addEventListener('mousemove', (e) => this.handlePointerMove(e));
+                this.videoOverlay.addEventListener('mouseup', (e) => this.handlePointerUp(e));
+                this.videoOverlay.addEventListener('mouseleave', (e) => this.handlePointerUp(e));
+                
+                // Touch events for mobile
+                this.videoOverlay.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    this.handlePointerDown(e.touches[0]);
+                });
+                this.videoOverlay.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                    this.handlePointerMove(e.touches[0]);
+                });
+                this.videoOverlay.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    this.handlePointerUp(e.changedTouches[0] || e.touches[0]);
+                });
+            }
+
+            handlePointerDown(e) {
+                const coords = this.getVideoCoordinates(e);
+                this.isPointerDown = true;
+                this.pointerStart = {
+                    x: coords.x,
+                    y: coords.y,
+                    time: Date.now()
+                };
+                
+                this.videoOverlay.style.cursor = 'grabbing';
+                this.log(`Pointer down at: ${coords.x}, ${coords.y}`);
+            }
+
+            handlePointerMove(e) {
+                const coords = this.getVideoCoordinates(e);
+                this.updateCoordinateDisplay(coords);
+                
+                // Visual feedback during potential swipe
+                if (this.isPointerDown) {
+                    const distance = Math.sqrt(
+                        Math.pow(coords.x - this.pointerStart.x, 2) + 
+                        Math.pow(coords.y - this.pointerStart.y, 2)
+                    );
+                    
+                    if (distance > this.tapThreshold) {
+                        this.videoOverlay.style.cursor = 'grabbing';
+                    }
+                }
+            }
+
+            handlePointerUp(e) {
+                if (!this.isPointerDown) return;
+                
+                const coords = this.getVideoCoordinates(e);
+                const timeElapsed = Date.now() - this.pointerStart.time;
+                const distance = Math.sqrt(
+                    Math.pow(coords.x - this.pointerStart.x, 2) + 
+                    Math.pow(coords.y - this.pointerStart.y, 2)
+                );
+                
+                this.log(`Pointer up at: ${coords.x}, ${coords.y}, distance: ${distance.toFixed(1)}px, time: ${timeElapsed}ms`);
+                
+                // Determine if this was a tap or swipe
+                if (distance <= this.tapThreshold && timeElapsed <= this.tapTimeThreshold) {
+                    // This was a tap/click
+                    this.sendTap(this.pointerStart.x, this.pointerStart.y);
+                    this.log(`Detected TAP at ${this.pointerStart.x}, ${this.pointerStart.y}`);
+                } else {
+                    // This was a swipe
+                    this.sendSwipe(this.pointerStart.x, this.pointerStart.y, coords.x, coords.y, Math.min(timeElapsed, 1000));
+                    this.log(`Detected SWIPE from ${this.pointerStart.x},${this.pointerStart.y} to ${coords.x},${coords.y}`);
+                }
+                
+                this.isPointerDown = false;
+                this.videoOverlay.style.cursor = 'crosshair';
+            }
+
+            getVideoCoordinates(e) {
+                const rect = this.videoOverlay.getBoundingClientRect();
+                const x = Math.round(((e.clientX - rect.left) / rect.width) * 720);
+                const y = Math.round(((e.clientY - rect.top) / rect.height) * 1280);
+                
+                return {
+                    x: Math.max(0, Math.min(720, x)),
+                    y: Math.max(0, Math.min(1280, y))
+                };
+            }
+
+            updateCoordinateDisplay(coords) {
+                const deviceX = Math.round((coords.x / 720) * this.deviceWidth);
+                const deviceY = Math.round((coords.y / 1280) * this.deviceHeight);
+                
+                let gestureInfo = '';
+                if (this.isPointerDown) {
+                    const distance = Math.sqrt(
+                        Math.pow(coords.x - this.pointerStart.x, 2) + 
+                        Math.pow(coords.y - this.pointerStart.y, 2)
+                    );
+                    const timeElapsed = Date.now() - this.pointerStart.time;
+                    
+                    if (distance <= this.tapThreshold && timeElapsed <= this.tapTimeThreshold) {
+                        gestureInfo = ' [TAP]';
+                    } else {
+                        gestureInfo = ' [SWIPE]';
+                    }
+                }
+                
+                this.coordinateDisplay.textContent = 
+                    `Coordinates: (${coords.x}, ${coords.y}) | Device: (${deviceX}, ${deviceY})${gestureInfo}`;
+            }
+
+            updateStreamStatus(active) {
+                this.streamActive = active;
+                
+                if (active) {
+                    this.streamIndicator.textContent = 'Stream Active';
+                    this.streamIndicator.className = 'stream-indicator active';
+                    this.statusDiv.className = 'status stream-active';
+                    this.statusDiv.textContent = 'Connected - Interactive streaming active';
+                } else {
+                    this.streamIndicator.textContent = 'Stream Inactive';
+                    this.streamIndicator.className = 'stream-indicator inactive';
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        this.statusDiv.className = 'status connected';
+                        this.statusDiv.textContent = 'Connected - Stream restarting...';
+                    }
+                }
+            }
+
+            updateCommandQueueDisplay() {
+                const pendingCount = this.commandQueue.length;
+                this.commandQueueInfo.textContent = `Commands: ${pendingCount} pending`;
+                
+                if (this.processingCommand) {
+                    this.commandQueueInfo.className = 'command-queue-info processing';
+                    this.commandQueueInfo.textContent += ' (processing...)';
+                } else {
+                    this.commandQueueInfo.className = 'command-queue-info';
+                }
+            }
+
+            sendCommandWithFeedback(command, buttonElement) {
+                // Add visual feedback to button
+                if (buttonElement) {
+                    buttonElement.classList.add('button-processing');
+                    buttonElement.disabled = true;
+                    
+                    // Remove feedback after command is likely processed
+                    setTimeout(() => {
+                        buttonElement.classList.remove('button-processing');
+                        buttonElement.disabled = false;
+                    }, 1000);
+                }
+                
+                this.sendCommand(command);
+            }
+
+            sendTap(x, y) {
+                this.log(`Sending tap: ${x}, ${y}`);
+                this.sendCommand({
+                    type: 'tap',
+                    x: x,
+                    y: y
+                });
+            }
+
+            sendSwipe(startX, startY, endX, endY) {
+                this.log(`Sending swipe: ${startX},${startY} -> ${endX},${endY}`);
+                this.sendCommand({
+                    type: 'swipe',
+                    startX: startX,
+                    startY: startY,
+                    endX: endX,
+                    endY: endY,
+                    duration: 300
+                });
+            }
+
+            sendText() {
+                const text = this.textInput.value.trim();
+                if (text) {
+                    this.log(`Sending text: ${text}`);
+                    this.sendCommandWithFeedback({
+                        type: 'text',
+                        text: text
+                    }, this.sendTextBtn);
+                    this.textInput.value = '';
+                }
+            }
+
+            sendCommand(command) {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    // Add to local command queue for UI feedback
+                    this.commandQueue.push(command);
+                    this.updateCommandQueueDisplay();
+                    
+                    this.ws.send(JSON.stringify(command));
+                    
+                    // Remove from queue after estimated processing time
+                    setTimeout(() => {
+                        this.commandQueue.shift();
+                        this.updateCommandQueueDisplay();
+                    }, 500);
+                } else {
+                    this.log('WebSocket not connected');
+                }
+            }
+
+            log(message) {
+                console.log(message);
+                if (this.debugLog) {
+                    const timestamp = new Date().toLocaleTimeString();
+                    this.debugLog.innerHTML += `[${timestamp}] ${message}<br>`;
+                    this.debugLog.scrollTop = this.debugLog.scrollHeight;
+                }
+            }
+
+            toggleDebug() {
+                this.isDebugVisible = !this.isDebugVisible;
+                this.debugInfo.style.display = this.isDebugVisible ? 'block' : 'none';
+                this.debugBtn.textContent = this.isDebugVisible ? 'Hide Debug' : 'Show Debug';
+            }
+
+            connect() {
+                try {
+                    this.updateStatus('connecting', 'Connecting...');
+                    this.log('Attempting to connect...');
+                    
+                    this.cleanup();
+                    
+                    const wsUrl = `ws://${window.location.host}`;
+                    this.ws = new WebSocket(wsUrl);
+                    this.ws.binaryType = 'arraybuffer';
+
+                    this.ws.onopen = () => {
+                        this.log('WebSocket connected successfully');
+                        this.updateStatus('connected', 'Connected - Starting stream...');
+                        this.connectBtn.disabled = true;
+                        this.disconnectBtn.disabled = false;
+                        this.setupMediaSource();
+                    };
+
+                    this.ws.onmessage = (event) => {
+                        if (typeof event.data === 'string') {
+                            try {
+                                const message = JSON.parse(event.data);
+                                this.handleServerMessage(message);
+                            } catch (e) {
+                                this.log('Received text: ' + event.data);
+                            }
+                        } else if (event.data instanceof ArrayBuffer) {
+                            this.handleVideoData(event.data);
+                        }
+                    };
+
+                    this.ws.onerror = (error) => {
+                        this.log('WebSocket error: ' + error);
+                        this.updateStatus('disconnected', 'Connection Error');
+                        this.updateStreamStatus(false);
+                    };
+
+                    this.ws.onclose = (event) => {
+                        this.log(`WebSocket closed: Code ${event.code}`);
+                        this.updateStatus('disconnected', 'Disconnected');
+                        this.updateStreamStatus(false);
+                        this.connectBtn.disabled = false;
+                        this.disconnectBtn.disabled = true;
+                        this.cleanup();
+                    };
+
+                } catch (error) {
+                    this.log('Connection failed: ' + error.message);
+                    this.updateStatus('disconnected', 'Connection Failed');
+                    this.updateStreamStatus(false);
+                }
+            }
+
+            disconnect() {
+                this.log('Disconnecting...');
+                if (this.ws) {
+                    this.ws.close();
+                }
+                this.cleanup();
+                this.connectBtn.disabled = false;
+                this.disconnectBtn.disabled = true;
+                this.updateStreamStatus(false);
+            }
+
+            handleServerMessage(message) {
+                this.log('Server message: ' + JSON.stringify(message));
+                
+                switch (message.type) {
+                    case 'resolution':
+                        this.deviceWidth = message.width;
+                        this.deviceHeight = message.height;
+                        this.log(`Device resolution updated: ${this.deviceWidth}x${this.deviceHeight}`);
+                        break;
+                        
+                    case 'stream_status':
+                        if (message.status === 'active') {
+                            this.updateStreamStatus(true);
+                            this.log('Stream confirmed active by server');
+                        } else {
+                            this.updateStreamStatus(false);
+                        }
+                        break;
+                        
+                    case 'error':
+                        this.log('Server error: ' + message.message);
+                        this.updateStatus('disconnected', 'Error: ' + message.message);
+                        break;
+                        
+                    case 'connected':
+                        this.log('Server connection confirmed');
+                        break;
+                        
+                    default:
+                        this.log('Unknown message type: ' + message.type);
+                }
+            }
+
+            setupMediaSource() {
+                this.log('Setting up MediaSource...');
+                
+                if (!('MediaSource' in window)) {
+                    this.log('MediaSource not supported in this browser');
+                    return;
+                }
+
+                try {
+                    this.mediaSource = new MediaSource();
+                    
+                    this.mediaSource.addEventListener('sourceopen', () => {
+                        this.log('MediaSource opened');
+                        setTimeout(() => this.createSourceBuffer(), 100);
+                    });
+
+                    this.mediaSource.addEventListener('sourceclose', () => {
+                        this.log('MediaSource closed');
+                        this.sourceBuffer = null;
+                        this.updateStreamStatus(false);
+                    });
+
+                    this.mediaSource.addEventListener('error', (e) => {
+                        this.log('MediaSource error: ' + JSON.stringify(e));
+                        this.updateStreamStatus(false);
+                    });
+
+                    this.video.src = URL.createObjectURL(this.mediaSource);
+                    this.log('MediaSource created and assigned to video element');
+                    
+                } catch (error) {
+                    this.log('Failed to create MediaSource: ' + error.message);
+                    this.updateStreamStatus(false);
+                }
+            }
+
+            createSourceBuffer() {
+                try {
+                    if (this.mediaSource.readyState !== 'open') {
+                        this.log('MediaSource not ready, retrying...');
+                        setTimeout(() => this.createSourceBuffer(), 500);
+                        return;
+                    }
+
+                    const mimeType = 'video/mp4; codecs="avc1.42E01E"';
+                    
+                    if (!MediaSource.isTypeSupported(mimeType)) {
+                        this.log('MIME type not supported: ' + mimeType);
+                        return;
+                    }
+                    
+                    this.sourceBuffer = this.mediaSource.addSourceBuffer(mimeType);
+                    
+                    this.sourceBuffer.addEventListener('updateend', () => {
+                        this.isBuffering = false;
+                        this.processQueue();
+                        this.cleanupOldBuffer();
+                    });
+                    
+                    this.sourceBuffer.addEventListener('updatestart', () => {
+                        this.isBuffering = true;
+                    });
+                    
+                    this.sourceBuffer.addEventListener('error', (e) => {
+                        this.log('SourceBuffer error: ' + JSON.stringify(e));
+                        this.isBuffering = false;
+                        this.updateStreamStatus(false);
+                    });
+                    
+                    if ('mode' in this.sourceBuffer) {
+                        this.sourceBuffer.mode = 'sequence';
+                    }
+                    
+                    this.log('SourceBuffer created successfully');
+
+                } catch (error) {
+                    this.log('Failed to create SourceBuffer: ' + error.message);
+                    this.updateStreamStatus(false);
+                }
+            }
+
+            handleVideoData(data) {
+                if (!this.sourceBuffer) {
+                    return;
+                }
+
+                const chunk = new Uint8Array(data);
+                this.queue.push(chunk);
+                this.processQueue();
+                
+                // Update stream status on first chunk
+                if (this.queue.length === 1 && !this.streamActive) {
+                    this.updateStreamStatus(true);
+                }
+            }
+
+            processQueue() {
+                if (this.queue.length > 0 && 
+                    this.sourceBuffer && 
+                    !this.sourceBuffer.updating && 
+                    !this.isBuffering) {
+                    
+                    const chunk = this.queue.shift();
+                    try {
+                        this.sourceBuffer.appendBuffer(chunk);
+                    } catch (error) {
+                        this.log('Error appending buffer: ' + error.message);
+                        this.isBuffering = false;
+                        
+                        if (error.name === 'QuotaExceededError') {
+                            this.queue = [];
+                            this.cleanupOldBuffer();
+                        }
+                    }
+                }
+            }
+
+            cleanupOldBuffer() {
+                if (!this.sourceBuffer || this.sourceBuffer.updating) return;
+
+                try {
+                    if (this.sourceBuffer.buffered.length > 0) {
+                        const currentTime = this.video.currentTime;
+                        const start = this.sourceBuffer.buffered.start(0);
+                        
+                        if (currentTime - start > 30) {
+                            const removeEnd = Math.min(currentTime - 20, 
+                                this.sourceBuffer.buffered.end(this.sourceBuffer.buffered.length - 1) - 5);
+                            if (removeEnd > start) {
+                                this.sourceBuffer.remove(start, removeEnd);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    this.log('Buffer cleanup error: ' + error.message);
+                }
+            }
+
+            toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    this.video.requestFullscreen().catch(err => {
+                        this.log('Fullscreen error: ' + err.message);
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
+            }
+
+            updateStatus(type, message) {
+                this.statusDiv.className = `status ${type}`;
+                this.statusDiv.textContent = message;
+            }
+
+            cleanup() {
+                this.log('Cleaning up resources...');
+                
+                this.queue = [];
+                this.isBuffering = false;
+                this.commandQueue = [];
+                this.processingCommand = false;
+                this.updateCommandQueueDisplay();
+                
+                if (this.sourceBuffer) {
+                    try {
+                        if (this.mediaSource && this.mediaSource.readyState === 'open') {
+                            this.mediaSource.removeSourceBuffer(this.sourceBuffer);
+                        }
+                    } catch (error) {
+                        console.error('Error removing source buffer:', error);
+                    }
+                    this.sourceBuffer = null;
+                }
+                
+                if (this.mediaSource) {
+                    try {
+                        if (this.mediaSource.readyState === 'open') {
+                            this.mediaSource.endOfStream();
+                        }
+                        if (this.video.src && this.video.src.startsWith('blob:')) {
+                            URL.revokeObjectURL(this.video.src);
+                        }
+                    } catch (error) {
+                        console.error('Error cleaning up MediaSource:', error);
+                    }
+                    this.mediaSource = null;
+                }
+                
+                this.video.src = '';
+                this.video.load();
+                this.updateStreamStatus(false);
+            }
+        }
+
+        // Global function for quick key presses
+        function sendKey(keyCode) {
+            if (window.streamer && window.streamer.ws && window.streamer.ws.readyState === WebSocket.OPEN) {
+                window.streamer.sendCommand({
+                    type: 'key',
+                    keyCode: keyCode
+                });
+                window.streamer.log(`Sent key: ${keyCode}`);
+            }
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            window.streamer = new InteractiveAndroidStreamer();
+            
+            // Set up tap threshold slider
+            const tapThresholdSlider = document.getElementById('tapThresholdSlider');
+            const tapThresholdValue = document.getElementById('tapThresholdValue');
+            
+            tapThresholdSlider.addEventListener('input', (e) => {
+                const value = parseInt(e.target.value);
+                window.streamer.tapThreshold = value;
+                tapThresholdValue.textContent = value + 'px';
+                window.streamer.log(`Tap threshold updated to ${value}px`);
+            });
+        });
+    </script>
+</body>
+</html>
